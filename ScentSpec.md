@@ -565,3 +565,51 @@ The `[path]` is the file system path to either a JPEG or PNG file.  The `[type]`
 The `[name]` is a unique name that is assigned to this particular image when it is loaded.  If an `image_load` statement is run that uses a `[name]` that has already been defined, the provided path and type are ignored and the operation just returns the same image object that was returned earlier for that given `[name]`.  This ensures that the same image is not loaded more than once.
 
 It is strongly recommended to use the `image_recode.pl` script on the image files you are planning on embedding.  This minimizes the chance of the image using weird encoding settings that may cause problems when they are embedded in the PDF file.
+
+### Path operations
+
+Path objects are built in the accumulator register.  The following operations mark the boundaries of the definition:
+
+    - start_path -
+    [rule:atom|null] finish_path [result:path]
+
+When the `start_path` operation is invoked, the accumulator register must be empty.  The accumulator is filled with the start of a new path object definition.  All other operations within this section may only be used while the accumulator is filled with part of a path object definition.  When the path object has been fully defined in the accumulator, `finish_path` pushes the completed path object onto the interpreter stack and clears the accumulator register.
+
+The `finish_path` operation requires a `[rule]` atom that is either `Nonzero` or `EvenOdd`, or it may be the null value if the path will never be used for filling or as a clipping path.  This determines the rule for checking whether a point is "inside" the path or not.
+
+When the accumulator is building a path object, it may be either in _initial mode_ or _subpath mode._  When `start_path` is first invoked, the path is in initial mode.  The path must be in initial mode when `finish_path` is called or an error occurs.
+
+Subpath mode is used for appending a motion subpath to the path in the accumulator.  The following operations enter and exit subpath mode:
+
+    [x:fixed] [y:fixed] start_motion -
+    - finish_motion -
+    - close_motion -
+
+The `start_motion` operation may only be used when there is a path in the accumulator that is in initial mode.  The `[x]` and `[y]` arguments indicate the starting point of the motion.  The path in the accumulator will be switched to subpath mode.
+
+The `finish_motion` and `close_motion` operations may only be used when there is a path in the accumulator that is in subpath mode _and_ at least one line or curve has been added to it.  Both operations finish the current motion and return the path in the accumulator to initial mode.  The difference between the two is that `close_motion` will close the subpath before adding it, while `finish_motion` will not close the subpath.
+
+The following operations add lines and curves to a motion:
+
+    [x2:fixed] [y2:fixed] motion_line -
+    
+    [x2:fixed] [y2:fixed]
+    [x3:fixed] [y3:fixed]
+    [x4:fixed] [y4:fixed] motion_curve -
+
+The `motion_line` operation adds a line from the current point to the given coordinates and then updates the current point to the given coordinates.  The `motion_curve` adds a cubic Bezier curve where the starting point is the current point, (X2, Y2) and (X3, Y3) are the control points, and (X4, Y4) is the end point; then, it updates the current point to (X4, Y4).
+
+When the accumulator holds a path object that is in initial mode, you can add a subpath representing a closed rectangle using the following operation:
+
+    [x:fixed] [y:fixed] [w:fixed] [h:fixed] path_rect -
+
+`[x]` and `[y]` are the bottom-left coordinates of the rectangle, and `[w]` and `[h]` are the width and height of the rectangle.  The width and height must both be greater than zero.  The rectangle edges move counterclockwise for purposes of the nonzero winding rule.
+
+When the accumulator holds a path object that is in initial mode, you can append all the subpaths of an existing path object to it using the following operation:
+
+    [source:path] path_include -
+
+All the subpaths from the `[source]` path object will be copied into the path object in the accumulator.  Note that the fill rule is _not_ copied.
+
+### Transform operations
+
