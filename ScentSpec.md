@@ -4,7 +4,9 @@ Scent is a Shastina dialect that is used for compiling PDF files.  A specificati
 
 ## Header
 
-Scent files must begin with the following kind of header:
+There are two kinds of Scent files:  _standalone_ and _embedded._  A standalone Scent file is able to compile directly into PDF.  An embedded Scent file must first be embedded into a standalone Scent file before it can be compiled into PDF.  Embedded Scent files are useful for graphics and diagrams that are defined individually in embedded format and then later incorporated into a Scent standalone document.
+
+Standalone Scent files must begin with the following kind of header:
 
     %scent 1.0;
 
@@ -15,9 +17,45 @@ More specifically, the first four Shastina entities read from the file must be a
 3. `META_TOKEN` with version number
 4. `END_META`
 
-The `scent` value is case sensitive.
+The `scent` token is case sensitive.
 
 The version number allows implementations supporting future versions of this specification to remain backwards compatible.  Implementations targeting this specification of Scent should refuse to parse anything that does not have a version exactly matching `1.0`.
+
+Standalone Scent files may use all Scent operations, which are defined in later sections of this specification.
+
+Embedded Scent files must begin with the following kind of header:
+
+    %scent-embed 1.0;
+    %bound-x 0;
+    %bound-y -125.50;
+    %bound-w 500;
+    %bound-h 125.50;
+    %body;
+
+The first four Shastina entities read from the file are the same as read from a standalone Scent file, except the second token must be `scent-embed` instead of `scent`.  In the example above, the first four Shastina entities are contained on the first line.
+
+Following the first four entities, there must be a sequence of one or more embedded header metacommands.  Each of these embedded header metacommands except the last has the following format:
+
+1. `BEGIN_META`
+2. `META_TOKEN` with value defining parameter name
+3. `META_TOKEN` with value defining parameter value
+4. `END_META`
+
+The supported parameter names are `bound-x`, `bound-y`, `bound-w` and `bound-h`.  Each of these parameter names must be defined exactly once in the header, but the order of definitions does not matter.  The parameter values must all be fixed-point values in the same format defined for numeric entities later in this specification.  (Integers are automatically promoted to fixed-point.)
+
+The parameters defined in the header indicate the lower-left corner and the width and height of the bounding box surrounding the embedded graphics defined by this file.  The specific X and Y coordinates used for the bounding box do not matter so much because they will be transformed into page space when the embedded graphic object is placed on the page.
+
+The defined bounding box is only used for layout purposes.  In particular, the content drawn by the embedded graphics is _not_ clipped to the bounding box.
+
+After all the header parameters and values have been defined, the last embedded header metacommand has the following format:
+
+1. `BEGIN_META`
+2. `META_TOKEN` with value `body`
+3. `END_META`
+
+After this metacommand is read, the header of the file is completed and no further metacommands may be used within the file.
+
+Embedded Scent files may only use a subset of Scent operations.  The operation documentation given later in the specification will note which operations are only available in standalone format.
 
 ## Data types
 
@@ -28,16 +66,15 @@ Scent supports the following data types both on the Shastina interpreter stack a
 3. Fixed-point
 4. Atom
 5. String
-6. Dictionary
-7. Ream object
-8. Color object
-9. Stroke object
-10. Font object
-11. Image object
-12. Path object
-13. Transform object
-14. Column object
-15. Clipping object
+6. Ream object
+7. Color object
+8. Stroke object
+9. Font object
+10. Image object
+11. Path object
+12. Transform object
+13. Column object
+14. Clipping object
 
 The _null type_ includes only a single data value that represents a null, undefined value.
 
@@ -50,8 +87,6 @@ Integers can be automatically promoted to fixed-point values.  This means that a
 The _atom type_ is used for various special constants.  An atom is a predefined constant string value that is mapped to a unique integer value.  Only the unique integer value needs to be stored on the interpreter stack and as variable and constant values.  However, atoms are not interchangeable with integers or strings.
 
 The _string type_ is used for storing Unicode text.  Strings are stored in memory as binary strings that are UTF-8 encoded.  The maximum string size is 65535 bytes in the binary UTF-8 encoding, which matches the limit given in the PDF specification.
-
-The _dictionary type_ is a mapping of atom keys to values of any type.  It is used especially for passing complex sets of parameters to operations.
 
 The following subsections describe the different object types.
 
@@ -87,13 +122,15 @@ The _paper size_ is the physical size of the paper.  Although this size is allow
 
 These sizes match those defined by the Cascading Style Sheets (CSS) standard for the `size` descriptor of the `@page` at-rule.  Dimensions given in inches in the above table are converted to points by multiplying by 72.  Dimensions given in millimeters are converted to points by multiplying by 72, dividing by 25.4 and rounding to the fixed-point value.
 
-The _boundaries_ define the printing areas on the page.  Printers are not able to print close against the edge of the paper.  To work around this problem, there are two different boundary styles that can be defined: simple and complex.
+The _boundaries_ define the printing areas on the page.  Printers are not able to print close against the edge of the paper.  To work around this problem, there are two different boundary methods: simple and complex.
 
-In the simple boundary style, the size of the finished page matches the paper size defined by the ream.  There must be an _art box_ defined that is smaller than the paper size, leaving small margins around the edges of the paper.  Printing will be confined to the art box, allowing the printer to avoid the edges of the paper.  The disadvantage to the simple boundary style is that there must be small blank margins around the edges of the paper, so there is no way for graphics to extend all the way to the edge of the finished page.
+In the simple boundary method, the size of the finished page matches the paper size defined by the ream.  There must be an _art box_ defined that is smaller than the paper size, leaving small margins around the edges of the paper.  Printing will be confined to the art box, allowing the printer to avoid the edges of the paper.  The disadvantage to the simple boundary method is that there must be small blank margins around the edges of the paper, so there is no way for graphics to extend all the way to the edge of the finished page.
 
-In the complex boundary style, the paper size defined by the ream is larger than the desired finished page size.  The _bleed box_ must be smaller than the paper size of the ream, so that the printer can avoid the edges of the paper.  The finished paper size is defined by the _trim box,_ which must be smaller than the bleed box.  After the page is printed on the paper size defined by the ream, the page is sliced to the trim box.  The trimmed page can therefore have graphics that extend all the way to the edge of the finished page.  Since slicing the paper is always somewhat inaccurate, graphics on the edge of the page should extend into the bleed box, to allow for some error in trimming.
+In the complex boundary method, the paper size defined by the ream is larger than the desired finished page size.  The _bleed box_ must be smaller than the paper size of the ream, so that the printer can avoid the edges of the paper.  The finished paper size is defined by the _trim box,_ which must be smaller than the bleed box.  After the page is printed on the paper size defined by the ream, the page is sliced to the trim box.  The trimmed page can therefore have graphics that extend all the way to the edge of the finished page.  Since slicing the paper is always somewhat inaccurate, graphics on the edge of the page should extend into the bleed box, to allow for some error in trimming.
 
-The complex boundary style also allows for there to be a trim box but no bleed box.  This is used in cases where the page will be finished by trimming but there is no need for bleed.
+The complex boundary method also allows for there to be a trim box but no bleed box.  This is used in cases where the page will be finished by trimming but there is no need for bleed.
+
+Scent allows an art box, bleed box, and trim box to be defined for each ream.  To match the style used in PDF/X, either an art box or a trim box must be defined for each ream.  The bleed box is optional and can be used with either the art box or the trim box.  Art boxes and trim boxes must be contained within the page, and also within the bleed box, if the bleed box is defined.
 
 The _rotation_ property defines the orientation of the page.  The idiomatic way of handling landscape orientation in PDF files is to define the page in portrait orientation and then rotate it.  The valid rotation values are 0, 90, 180, and 270 degrees clockwise.  Transformation objects can be used to orient display elements from landscape orientation into the rotated portrait orientation.
 
@@ -149,11 +186,10 @@ If the dash pattern array is not empty, then there is also the _dash pattern pha
 
 ### Font objects
 
-Font objects represent the fonts that text can be rendered with.  There are three types of fonts:
+Font objects represent the fonts that text can be rendered with.  There are two types of fonts:
 
 1. Built-in fonts
 2. TrueType/OpenType fonts
-3. Synthetic fonts
 
 The built-in fonts are fonts that are available on all PDF implementations.  The built-in fonts are as follows:
 
@@ -182,21 +218,23 @@ The first limitation is that Scent always renders glyphs in left-to-right order.
 
 The second limitation is that Scent uses a naive mapping of Unicode codepoints to glyphs.  In particular, Scent does not support complex shaping and context-sensitive selection of different glyphs for the same codepoint.  Scent also does not support automatically choosing ligatures.  To handle these cases, each individual glyph must have its own unique Unicode codepoint.  (You can make use of private Unicode codepoints if there are no official Unicode codepoints for specific glyphs.)  The text must then be shaped and mapped to these glyph-specific Unicode codepoints before passing the text into Scent.
 
-The final font type is the synthetic font.  A synthethic font is derived from another font, which may be a built-in font, a TrueType or OpenType font, or another synthetic font.  The derivation allows the original font to be altered in the following ways within the synthetic font:
-
-- **Horizontal scaling:** both squeezing and stretching
-- **Obliqueness:** lean glyphs left or right for an oblique effect
-- **Boldness:** expand glyph outlines to create a bold effect
-- **Small-caps:** replace lowercase letters with small uppercase letters
-- **Character spacing:** add more space between glyphs
-
-Synthetic fonts may specify any combination of these alterations.
-
-Deriving a synthetic font A from another synthetic font B that is based on non-synthetic font C works as follows.  Font A will be derived directly from font C.  Any alterations specified by font A are used as-is while ignoring their settings in font B.  Any alterations not specified by font A are inherited from font B if present in font B.
-
 ### Image objects
 
-Image objects represent a raster image file that is embedded in the PDF file.  Scent supports JPEG and PNG files, which are imported by path.  Keeping the image files in grayscale is recommended if possible, since PDF may not be able to guarantee the specific RGB colorspace used in printing.  Avoiding an alpha channel in PNG files is also recommended.
+Image objects represent a raster image file that is embedded in the PDF file.
+
+Image objects are specified to Scent by a path to either a JPEG or PNG file.  However, only limited subsets of JPEG and PNG are supported by Scent due to limitations of PDF.  It is strongly recommended to use the `image_recode.pl` script to re-encode JPEG and PNG images for maximum compatibility.
+
+The choice of JPEG or PNG file will determine the compression method used within the PDF file.  JPEG images will use DCT compression in the PDF file, where PDF's DCT compression method has been defined to match JPEG baseline.  PNG images will use Flate compression in the PDF file, where PDF's Flate compression method has been defined to match PNG compression, including PNG's predictor functions.
+
+For JPEG files, the encoded colorspace must either be Grayscale or YCbCr.  The YCbCr colorspace will automatically be converted into RGB when the image is decompressed from the PDF file for display or printing.  Although some JPEG variants allow CMYK color, Scent does not support CMYK JPEG files.
+
+For PNG files, the encoded colorspace must either be Grayscale, RGB, or Indexed-RGB.  PDF is capable of storing indexed (palette) images.  However, the alpha channel may _not_ be used.
+
+None of the color channels stored in the provided JPEG or PNG images may exceed 8 bits per sample.  Interlacing or progressive display may not be used.
+
+In the PDF file, the colorspace of grayscale images will be set to `DeviceGray` and the colorspace of color images will be set to `DeviceRGB`.  Color profile information that might be stored in the JPEG or PNG files is ignored.  No guarantees are made about the specific colorspace that is used for display or printing.  The most portable strategy is to use the sRGB colorspace and hope for the best.
+
+Resolution information that may be present in the JPEG or PNG files is ignored.
 
 ### Path objects
 
@@ -271,7 +309,9 @@ The interpreter stack at the end of interpretation must be empty.
 
 In addition to the Shastina state, the Scent interpreter also has a _page register._  The page register starts out set to the null value.  When a page is defined, the page register holds the ream object representing the current page and it also has internal state representing the page object that will be stored in the PDF file.  At the end of each page, the register is cleared back to the null value.
 
-The page register must be null at the end of interpretation.
+There is also an _accumulator register._  The accumulator is used for building complex objects in a sequence of operators.  Once the complex object has been fully defined in the accumulator, the completed object is pushed onto the interpreter stack and the accumulator is cleared.  Only one complex object may be built in the accumulator at a time.
+
+The page and accumulator registers must be null at the end of interpretation.
 
 ## Shastina entities
 
@@ -317,6 +357,8 @@ The name of the operation (`opname`) is given in the middle.  To the left of the
 
 If an operation has no arguments, there will be a single hyphen to the left of the operation name.  If an operation has no results, there will be a single hyphen to the right of the operation.  If an operation has neither arguments nor results, the operation name will be surrounded by hyphens.
 
+For each of the operation subsections that concern a specific kind of object, see also the corresponding object documentation earlier in this specification for more information.
+
 Operations with a lot of arguments and/or results might split their definitions across multiple lines.
 
 ### Basic operations
@@ -330,116 +372,196 @@ The `pop` operation simply discards the top element from the stack, which may ha
 
 The `null` operation pushes the null value on top of the stack.
 
-    [k_1:atom] [v_1:any]
-    ...
-    [k_n:atom] [v_n:any] [m:integer] dict [d:dictionary]
+    [s1:string] ... [sn:string] [n:integer] concat [result:string]
 
-The `dict` operation creates a dictionary.  The dictionary is defined as a set of zero or more key/value pairs, where the keys must be atoms and the values may be any type.  The order of key/value pairs does not matter.  Each key must be a unique atom.  The argument on top of the stack, `[m]`, must be twice the number of key/value pairs.  This allows it to be computed with a Shastina array:
+The `concat` operation takes an array of zero or more strings as input and pushes a new string onto the stack that has all the codepoints of the those strings combined.  If the input array is empty, the resulting string will be an empty string with no codepoints.
 
-    ["LeftMargin"  , 72,
-     "RightMargin" , 72,
-     "TopMargin"   , 72,
-     "BottomMargin", 72 ] dict
+    - sep [result:string]
 
-### Ream and page operations
+The `sep` operation pushes a string onto the stack that contains the platform-specific separator character for use in building paths.  On Windows this is a backslash, while on other platforms this is a forward slash.
 
-The following operation creates a ream object:
+### Ream operations
 
-    [w:fixed] [h:fixed]
-    [boundaries:dictionary]
-    [rot:integer] ream [r:ream]
+_Ream operations may not be used in embedded Scent files._
 
-The `ream` operation defines a ream object.  See the earlier section for further information about ream objects.
+Ream objects are built in the accumulator register.  The following operations mark the boundaries of the definition:
 
-The `[rot]` parameter on top of the stack defines the page rotation.  This must be an integer value of either 0, 90, 180, or 270, defining how the page is rotated clockwise to display it.  For landscape orientation of a page, you should normally define the page as if it were in portrait orientation, then set a `[rot]` value of 90 or 270 and apply appropriate transformations to rendering operations.
+    - start_ream -
+    - finish_ream [result:ream]
 
-Below the rotation parameter is the `[boundaries]` parameter, which must be a dictionary.  This dictionary is actually a dictionary of dictionaries, where the values in the `[boundaries]` dictionary are themselves dictionaries.
+When the `start_ream` operation is invoked, the accumulator register must be empty.  The accumulator is filled with the start of a new ream object definition.  All other operations within this section may only be used while the accumulator is filled with part of a ream object definition.  When the ream object has been fully defined in the accumulator, `finish_ream` pushes the completed ream object onto the interpreter stack and clears the accumulator register.
 
-The keys in the top-level `[boundaries]` dictionary define the boundary boxes.  The three supported atom keys are `ArtBox`, `TrimBox`, and `BleedBox`.  For a simple ream, just have an `ArtBox`.  For a complex ream, have either a `TrimBox` or both a `TrimBox` and a `BleedBox`.  See the discussion in the earlier section for further information.
+The paper dimensions of the ream in the accumulator are set with the following operation:
 
-Each boundary box key maps to a value that is another dictionary object.  These nested dictionary objects must have exactly four atom keys `LeftMargin` `RightMargin` `TopMargin` and `BottomMargin` that each map to a fixed-point value that is greater than zero.  These define the margins around the boundary box, in units of points.
+    [w:fixed] [h:fixed] ream_dim -
 
-For simple reams, each of the margins are the distance between the edge of the art box and the edge of the paper.  The left and right margins added together must be less than the width of the ream, and the top and bottom margins added together must be less than the height of the ream.  When a `[rot]` rotation is defined, these margins are orientated to the _unrotated_ page.
+Both `[w]` and `[h]` are fixed-point values greater than zero that are measured in points, defining the width and height of the paper.  The width and height refer to the unrotated page.  For pages in landscape orientation, the idiomatic way of doing that is to define the paper dimensions in portrait orientation and then use a rotation (see below).  Paper dimensions must be defined before the ream object is finished.  If paper dimensions are already defined, this operation will overwrite any dimensions currently in the accumulator.
 
-For complex reams with only a trim box, the margins are the distance between the edge of the trim box and the edge of the paper.  The left and right margins added together must be less than the width of the ream, and the top and bottom margins added together must be less than the height of the ream.  When a `[rot]` rotation is defined, these margins are orientated to the _unrotated_ page.
+The paper rotation of the ream in the accumulator is set with the following operation:
 
-For complex reams with both a trim box and a bleed box, the margins of the bleed box are the distance between the edge of the bleed box and the edge of the paper.  The margins of the trim box are the margins between the edge of the trim box and the edge of the paper.  Each trim box margin must be greater than the corresponding bleed box margin.  The left and right margins of the trim box added together must be less than the width of the ream, and the top and bottom margins of the trim box added together must be less than the height of the ream.  When a `[rot]` rotation is defined, these margins are oriented to the _unrotated_ page.
+    [rot:integer] ream_rotate -
 
-The final arguments are the width `[w]` and the height `[h]` of the _unrotated_ page, in points.  Both must be greater than zero.
+The `[rot]` is an integer value of either 0, 90, 180, or 270, defining how the page is rotated clockwise to display it.  For landscape orientation of a page, you should normally define the page as if it were in portrait orientation, then set a `[rot]` value of 90 or 270 and apply appropriate transformations to rendering operations.
 
-Example of a simple ream definition of an A4 landscape page where the art box margins are each 36 points:
+By default, `start_ream` sets the rotation of the ream to zero, so you do not need to use this operation if you do not require any rotation.  Each time this operation is invoked, it replaces any currently defined rotation value.
 
-    595.27559 841.88976
-    [
-      "ArtBox", [
-        "LeftMargin"  , 36,
-        "RightMargin" , 36,
-        "TopMargin"   , 36,
-        "BottomMargin", 36
-      ] dict
-    ] dict 90 ream
+Boundary boxes of the ream in the accumulator are set with the following operation:
 
-In order to add a page to the output PDF file, use the following operators:
+    [left:fixed] [right:fixed]
+    [top:fixed] [bottom:fixed]
+    [type:atom] ream_bound -
+
+The `[type]` atom must be either `ArtBox`, `TrimBox`, or `BleedBox`.  The rest of the parameters define the distance between an edge of the unrotated paper and an edge of the selected boundary box.  Each distance must be greater than zero.
+
+The `start_ream` operation does not define any boundary boxes.  Use the `ream_bound` operator to define one or more boundary boxes.  Attempting to define a specific boundary box more than once is allowed, but the new definition will just replace the old definition.
+
+When `finish_ream` is invoked, either an `ArtBox` or a `TrimBox` must be defined, but not both.  The `BleedBox` is optional.  For each defined box, the left and right margins added together must be less than the page width, and the top and bottom margins added together must be less than the page height.  If a bleed box is defined, each margin in the art box or trim box must be greater than the corresponding margin in the bleed box.  All of these validity checks are performed only when `finish_ream` is invoked.
+
+You can remove a defined boundary box with the following operation:
+
+    [type:atom] ream_unbound -
+
+The `[type]` atom must be either `ArtBox`, `TrimBox`, or `BleedBox`.  The named boundary box is removed from the ream currently in the accumulator.  This operation is useful when deriving reams from existing reams.
+
+If you want to derive a new ream object from an existing ream object, use `start_ream` to start an new ream definition and then use the following operation:
+
+    [source:ream] ream_derive -
+
+This operation completely discards all ream information currently in the accumulator and replaces the information to match the provided source ream object.  After `ream_derive` has been invoked, you can then edit the ream state and use `finish_ream` to produce the derived ream object.
+
+### Page operations
+
+_Page operations may not be used in embedded Scent files._
+
+In order to add a page to the output PDF file, use the following operations:
 
     [paper:ream] begin_page -
     - end_page -
 
-Each `begin_page` operator should have a matching `end_page` operator, and page operators may not be nested.  A ream object is passed to the `begin_page` operator to determine the size and boundaries of the page.
+Each `begin_page` operation must have a matching `end_page` operator, and page definitions may not be nested.  A ream object is passed to the `begin_page` operation to determine the size and boundaries of the page.
+
+When `begin_page` is invoked, the page register must be empty.  It is filled with the start of a new page definition, which includes the passed ream object.  Each time a display operation is performed, it adds content to the page in the page register.  When `end_page` is invoked, the page and all its content is output to the PDF file.
 
 ### Color operations
 
-The following operators define colors:
+The following operations define colors:
 
     [g:integer] gray [c:color]
     [c:integer] [m:integer] [y:integer] [k:integer] cmyk [c:color]
     [gf:fixed] fgray [c:color]
     [cf:fixed] [mf:fixed] [yf:fixed] [kf:fixed] fcmyk [c:color]
 
-The `gray` and `fgray` operators are used for grayscale colors, where a value of zero is black and a maximum value is white, to match the usual grayscale definition.  The grayscale operators are equivalent to using the `cmyk` or `fcmyk` operators, setting the CMY channels to zero, and setting the K channel to the inverse of the grayscale value (so that K is zero when grayscale is at maximum and K is at maximum when grayscale is zero).  In other words, the result of the color operators is always a CMYK color, with grayscale values automatically converted.
+The `gray` and `fgray` operators are used for grayscale colors, where a value of zero is black and a maximum value is white, to match the usual grayscale definition.  The grayscale operations are equivalent to using the `cmyk` or `fcmyk` operations, setting the CMY channels to zero, and setting the K channel to the inverse of the grayscale value (so that K is zero when grayscale is at maximum and K is at maximum when grayscale is zero).  In other words, the result of the color operations is always a CMYK color, with grayscale values automatically converted.
 
-The `cmyk` and `fcmyk` operators allow a CMYK color to be defined.  See the earlier section on color objects for further information about color spaces.
+The `cmyk` and `fcmyk` operations allow a CMYK color to be defined using all color channels.  No guarantees are made about the specific color space, except that the general meaning of the color channels are Cyan, Magenta, Yellow, and Black.
 
-The difference between the `f` and non-`f` versions of the grayscale and CMYK operators is on the type of arguments they take.  The non-`f` versions take integers, which must each be in the range [0, 255].  The `f` versions take fixed-point values, which must be in the range [0, 1.0].  The output color object always uses integer values, so fixed-point values will be automatically scaled to the integer range.
+The difference between the `f` and non-`f` versions of the grayscale and CMYK operations is the type of arguments they take.  The non-`f` versions take integers, which must each be in the range [0, 255].  The `f` versions take fixed-point values, which must be in the range [0, 1.0].  The output color object always uses integer values, so fixed-point values will be automatically scaled to the integer range.
 
 ### Stroke operations
 
-Stroke styles need a special _dash pattern array_ type for their definitions, which is created with the following operator:
+Stroke objects are built in the accumulator register.  The following operations mark the boundaries of the definition:
 
-    [a_1:fixed] ... [a_n:fixed] [n:integer] dash_pattern [dp:dash_pattern]
+    - start_stroke -
+    - finish_stroke [result:stroke]
 
-There may be zero or more elements.  If there are two or more elements, the number of elements must be even.  Each element must be a fixed-point value that is greater than zero, measuring a length in points.  See the earlier section for more about dash pattern arrays.
+When the `start_stroke` operation is invoked, the accumulator register must be empty.  The accumulator is filled with the start of a new stroke style object definition.  All other operations within this section may only be used while the accumulator is filled with part of a stroke style object definition.  When the stroke style object has been fully defined in the accumulator, `finish_stroke` pushes the completed stroke object onto the interpreter stack and clears the accumulator register.
 
-The following operator defines a stroke object for storing styling information about strokes:
+For each stroke in the accumulator, you must use the following operation to set the width of the stroke:
 
-    [param:dictionary] stroke_style [s:stroke]
+    [w:fixed] stroke_width -
 
-All the parameters that define the stroke style are provided within a dictionary passed as a parameter.  Each style parameter is optional except the width, which is required.  The optional parameters each have default values that are used if they are not provided in the dictionary.
+The `[w]` parameter is the width of the stroke in points, which must be greater than zero.  If a stroke width has already been defined for the object in the accumulator, the new value replaces the old one.  You must define a stroke width before `finish_stroke` is called, because there is no default value.
 
-- `Color` - color object storing the stroke color to use; default is black
-- `Width` - width of the stroke in points
-- `Cap` - `ButtCap`, `RoundCap`, or `SquareCap`; default is `RoundCap`
-- `Join` - `MiterJoin`, `RoundJoin`, or `BevelJoin`; default is `RoundJoin`
-- `MiterLimit` - miter limit ratio if `Join` is `MiterJoin`, else null; default is null
-- `DashPattern` - the dash pattern array; default is empty pattern, meaning no dashes
-- `DashPhase` - distance in points to start within the dash pattern; default is zero
+The following operation sets the color of the stroke:
 
-The `Width`, `MiterLimit`, and `DashPhase` keys have fixed-point values that must be zero or greater.  Additionally, the `Width` and `MiterLimit` may not be zero.
+    [c:color] stroke_color -
 
-The `Color` must be a color object.  The default is as if created by `0 gray`
+The `[c]` parameter is the color object defining the color to use for the stroke.  By default, `start_stroke` sets the stroke color to black (as if created by `0 gray`), so you do not need to use this operation unless you want a color other than black.  A newly-defined stroke color replaces any currently defined stroke color.
 
-The `DashPattern` must be a dash pattern array.  The default is as if created by `[] dash_pattern`
+The following operation sets the line capping style:
 
-The `Cap` and `Join` keys must have atom values with one of the specified values.
+    [v:atom] stroke_cap -
 
-If you wish to compute the `MiterLimit` from an angle in degrees as described earlier, the following operator is available:
+The `[v]` parameter must be either `ButtCap`, `RoundCap`, or `SquareCap`.  By default, `start_stroke` sets the line cap style to `RoundCap`.  A newly-defined line cap style replaces any currently defined line cap style.
+
+The following operations set the line join style:
+
+    [v:atom] stroke_join -
+    [r:fixed] [v:atom] stroke_join_r -
+
+The `[v]` parameter must be either `MiterJoin`, `RoundJoin`, or `BevelJoin`.  The `MiterJoin` must use the `stroke_join_r` operation, while the `RoundJoin` and `BevelJoin` must use the `stroke_join` operation.  The `stroke_join_r` operation also takes a fixed-point parameter greater than zero which defines the miter limit ratio.  If you want to compute this ratio from an angle, the following operation is available:
 
     [angle:fixed] miter_angle [ratio:fixed]
 
-The `[angle]` must be in range [0.01, 180.0].  The computed result can then be used for the `MiterLimit`.
+The `[angle]` must be in range [0.01, 180.0], specified in degrees.  The computed ratio can then be used for the `[r]` parameter of `stroke_join_r`.  The `miter_angle` operation does _not_ require a stroke object to be in the accumulator, since it does not alter or refer to the stroke object state in any way.
 
-You can derive a new stroke style object from an existing one with the following operator:
+By default, the join style is set to `RoundJoin` by `start_stroke`.  A newly-defined join style replaces any currently defined join style.
 
-    [basis:stroke] [param:dictionary] stroke_derive [s:stroke]
+The following operation sets a dashed-line pattern:
 
-The newly-created stroke style object will inherit all values from the `[basis]` stroke object, except values defined in the given `[param]` dictionary will replace the inherited values.
+    [d1:fixed] ... [dn:fixed] [n:integer] [p:fixed] stroke_dash -
 
+The array `[d1]` through `[dn]` can be defined with the Shastina array facility, which will then automatically compute and push the `[n]` parameter.
+
+The array must have at least two values, and the total number of values must be an even number.  Values in the array are paired, with the first value in each pair storing the length in points of a dash and the second value in each pair storing the length in points of a gap.  All lengths in the array must be greater than zero.
+
+The dash pattern will be cycled through as many times as is necessary to cover the full distance of the subpath that is being stroked.  The `[p]` parameter controls where we are in the pattern at the beginning of the subpath.  At the beginning of the subpath, the dash pattern will be positioned as if a distance of `[p]` points had already been covered.  `[p]` must be greater than or equal to zero.
+
+To remove a dashed-line pattern, use the following operation:
+
+    - stroke_undash -
+
+By default, stroke objects do not have any dashed-line pattern when they are created in the accumulator register, which means that the whole subpath is stroked in one continuous stroke.
+
+If you want to derive a new stroke object from an existing stroke object, use `start_stroke` to start an new stroke style definition and then use the following operation:
+
+    [source:stroke] stroke_derive -
+
+This operation completely discards all stroke information currently in the accumulator and replaces the information to match the provided source stroke object.  After `stroke_derive` has been invoked, you can then edit the stroke state and use `finish_stroke` to produce the derived stroke object.
+
+### Font operations
+
+The following operation defines built-in fonts:
+
+    [name:atom] font_get [result:font]
+
+The `[name]` argument is one of the following atoms:
+
+- `Courier`
+- `CourierBold`
+- `CourierBoldOblique`
+- `CourierOblique`
+- `Helvetica`
+- `HelveticaBold`
+- `HelveticaBoldOblique`
+- `HelveticaOblique`
+- `Symbol`
+- `TimesBold`
+- `TimesBoldItalic`
+- `TimesItalic`
+- `TimesRoman`
+- `ZapfDingbats`
+
+The font object will represent the named built-in font.  Note that the atom names do not use hyphens, so they are not identical to the built-in font names.  If the same built-in font is loaded more than once, subsequent invocations of `font_get` will just return the same object for that particular built-in font that was returned earlier.
+
+The following operation defines TrueType and OpenType fonts:
+
+    [path:string] [name:string] font_load [result:font]
+
+The `[path]` is the file system path to the TrueType or OpenType font file.
+
+The `[name]` is a unique name that is assigned to this particular font when it is loaded.  If a `font_load` statement is run that uses a `[name]` that has already been defined, the provided path is ignored and the operation just returns the same font object that was returned earlier for that given `[name]`.  This ensures that the same font is not loaded more than once.
+
+All types of fonts (built-in, TrueType, and OpenType) are interchangeable after they have been wrapped in font objects.
+
+### Image operations
+
+The following operation defines an image object:
+
+    [path:string] [type:atom] [name:string] image_load [result:image]
+
+The `[path]` is the file system path to either a JPEG or PNG file.  The `[type]` atom is either `JPEG` or `PNG`, selecting the type of image file.
+
+The `[name]` is a unique name that is assigned to this particular image when it is loaded.  If an `image_load` statement is run that uses a `[name]` that has already been defined, the provided path and type are ignored and the operation just returns the same image object that was returned earlier for that given `[name]`.  This ensures that the same image is not loaded more than once.
+
+It is strongly recommended to use the `image_recode.pl` script on the image files you are planning on embedding.  This minimizes the chance of the image using weird encoding settings that may cause problems when they are embedded in the PDF file.
