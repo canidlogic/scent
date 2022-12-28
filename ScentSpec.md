@@ -695,3 +695,29 @@ For justifying text, it is often necessary to derive new styles that just adjust
 The `style_setw` takes a source text style object, copies it to a new style, and changes the word spacing in the new style to the given `[ws]` value.  The new style is then pushed onto the stack as the `[result]`.
 
 The `style_setwc` takes a source text style object, copies it to a new style, and changes the word spacing and/or character spacing in the new style to the given `[ws]` and `[cs]` values, respectively.  The new style is then pushed onto the stack as the `[result]`.  If null is used in place of a value, that value is not altered.
+
+### Column operations
+
+Column objects are built in the accumulator register.  The following operations mark the boundaries of the definition:
+
+    - start_column -
+    - finish_column [result:column]
+
+When the `start_column` operation is invoked, the accumulator register must be empty.  The accumulator is filled with the start of a new column object definition.  All other operations within this section may only be used while the accumulator is filled with part of a column object definition.  When the column object has been fully defined in the accumulator, `finish_column` pushes the completed column object onto the interpreter stack and clears the accumulator register.
+
+When the accumulator is building a column object, it may be either in _initial mode_ or _line mode._  When `start_column` is first invoked, the column is in initial mode.  The column must be in initial mode when `finish_column` is called or an error occurs.  Furthermore, at least one line must have been added to the column when `finish_column` is called.
+
+Line mode is used for appending a line to the column in the accumulator.  The following operations enter and exit line mode:
+
+    [x:fixed] [y:fixed] start_line -
+    - finish_line -
+
+The `start_line` operation may only be used when there is a column in the accumulator that is in initial mode.  The `[x]` and `[y]` arguments indicate the starting point of the baseline of this text line.  The column in the accumulator will be switched to line mode.
+
+The `finish_line` operation may only be used when there is a column in the accumulator that is in line mode _and_ at least one span has been added to it.  The operation finishes the current line and returns the column in the accumulator to initial mode.
+
+For a column object in the accumulator in line mode, the following operation is used to append a span to it:
+
+    [text:string] [s:style] line_span -
+
+The `[text]` parameter is the Unicode representation of the text to render in this span, and the `[s]` parameter determines the style in which the text is rendered.
