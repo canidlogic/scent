@@ -320,6 +320,8 @@ The interpreter stack at the end of interpretation must be empty.
 
 In addition to the Shastina state, the Scent interpreter also has a _page register._  The page register starts out set to the null value.  When a page is defined, the page register holds the ream object representing the current page and it also has internal state representing the page object that will be stored in the PDF file.  At the end of each page, the register is cleared back to the null value.
 
+The page register is only present in standalone Scent files.  It is not used in embedded Scent files.
+
 There is also an _accumulator register._  The accumulator is used for building complex objects in a sequence of operators.  Once the complex object has been fully defined in the accumulator, the completed object is pushed onto the interpreter stack and the accumulator is cleared.  Only one complex object may be built in the accumulator at a time.
 
 The page and accumulator registers must be null at the end of interpretation.
@@ -721,3 +723,53 @@ For a column object in the accumulator in line mode, the following operation is 
     [text:string] [s:style] line_span -
 
 The `[text]` parameter is the Unicode representation of the text to render in this span, and the `[s]` parameter determines the style in which the text is rendered.
+
+### Clipping operations
+
+The following operation defines a clipping region:
+
+    [s1:path|column|clip] [t1:transform|null]
+    ...
+    [sn:path|column|clip] [tn:transform|null]
+    [m:integer] clip [result:clip]
+
+The clipping region is built out of an array of clipping element pairs.  The value `[m]` is twice the number of clipping elements, since it counts individual array elements.  The first value in each clipping element is either a path object, a column object, or an existing clipping region.  The second value in each clipping element is either a transform to apply to the coordinate system while deriving the region for this element, or null to use the identity transform.  If the array is empty, the result is a clipping region containing the whole page.  Otherwise, the result is the intersection of all clipping element areas.
+
+Paths that are used as clipping elements may not have a null rule.  The region selected by a path is equal to the region that would be filled.  Columns select a region that would result from filling all the glyphs in the column.
+
+The order of elements in the array does not matter.
+
+### Drawing operations
+
+The drawing operations are the only operations that actually produce visible content on the page.  For standalone Scent files, drawing operations can only be used when the page register has a defined page.  For embedded Scent files, there is no page register and drawing operations can always be used.
+
+The order of drawing operations is significant.  Later drawing operations draw on top of earlier drawing operations.
+
+To draw a path, use the following operation:
+
+    [src:path] [s:stroke|null] [f:color|null]
+    [t:transform|null] [c:clip|null] draw_path -
+
+The `[src]` is the path object to draw.  `[s]` is either a stroke object defining how the path is stroked, or null if the path will not be stroked.  `[f]` is either a color object defining the color to fill the interior of the path with, or null if the path will not be filled.  `[t]` is how to transform the coordinate system while drawing the path, or null for an identity transform.  `[c]` is the clipping region to limit drawing to, or null to draw on the whole page.
+
+To draw a column of text, use the following operation:
+
+    [src:column] [t:transform|null] [c:clip|null] draw_text -
+
+The `[src]` is the column object specifying the text to draw and the style of the text.  `[t]` is how to transform the coordinate system while drawing the text, or null for an identity transform.  `[c]` is the clipping region to limit drawing to, or null to draw on the whole page.
+
+To draw a raster image, use the following operation:
+
+    [src:image]
+    [x:fixed] [y:fixed] [w:fixed] [h:fixed]
+    [t:transform|null] [c:clip|null] draw_image -
+
+The `[src]` is the image object specifying the image to draw.  `[x]` and `[y]` give the coordinates of where to place the bottom-left corner of the image, while `[w]` and `[h]` are the width and height of the image in points.  The X, Y, width, and height are relative to the coordinate system established by the `[t]` transform, with a null value for the transform meaning to use the identity transform.  `[c]` is the clipping region to limit drawing to, or null to draw on the whole page.
+
+To draw an embedded Scent file, use the following operation:
+
+    [path:string] [t:transform|null] [c:clip|null] draw_embed -
+
+The `[path]` is the path to the embedded Scent file to draw.  All drawing and clipping transformations in the embedded Scent file will have the `[t]` transformation prefixed to them, and all clipping parameters for drawing operations will be intersected with the `[c]` clipping region.  If `[t]` is null an identity transform is used, while if `[c]` is null the clipping region is the whole page.
+
+Embedded drawings may have multiple levels of nesting.  That is, an embedded drawing may invoke another embedded drawing.  However, there is significant overhead to nested embedding calls, so avoid nesting `draw_embed` commands as much as possible.
