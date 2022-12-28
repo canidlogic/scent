@@ -73,8 +73,9 @@ Scent supports the following data types both on the Shastina interpreter stack a
 10. Image object
 11. Path object
 12. Transform object
-13. Column object
-14. Clipping object
+13. Style object
+14. Column object
+15. Clipping object
 
 The _null type_ includes only a single data value that represents a null, undefined value.
 
@@ -268,13 +269,11 @@ Scent provides three different transformations for changing the axes.  The _tran
 
 Transformations can be combined in any way.  Note that the order of transformations is significant.  That is, translating and then rotating does not produce the same result as rotating and then translating.  Generally, if you want to change the coordinate system with translation, rotation, and scaling, you should usually perform translation first, rotation second, and scaling third.
 
-### Column object
+### Style object
 
-Column objects represent a sequence of text operations that place text on the page using fonts.
+Style objects represent the style of how text is rendered.
 
-The column object has an array of one or more _text lines._  Each text line defines its starting, leftmost baseline point and contains an array of one of more _text spans._  Each text span contains a Unicode string defining what text to render in the span and a _text style_ that determines the appearance of this text.  After each span is rendered, the next span begins where the previous span left off.
-
-The text style has the following parameters:
+Text style objects have the following parameters:
 
 - Font object selecting the font to use
 - Font size in points
@@ -285,13 +284,21 @@ The text style has the following parameters:
 - Stroke object or null for no stroking
 - Color object for fill or null for no filling
 
-The two extra space parameters allow for character spacing and word spacing adjustment, respectively.  The extra space is specified as an absolute measurement in points, independent of the font and font size.  Both properties are useful for justifying text to fill a given width.  The default value of each is zero, meaning the normal spacing for the font.
+The two extra space parameters allow for character spacing and word spacing adjustment.  The extra space is specified as an absolute measurement in points, independent of the font and font size.  Both properties are useful for justifying text to fill a given width.
 
-The baseline vertical adjustment is an absolute measurement in points, independent of the font and font size.  It applies only to this specific span.  It is useful for superscripts and subscripts.  The default value is zero, meaning the text is directly on the baseline for the line.
+The baseline vertical adjustment is an absolute measurement in points, independent of the font and font size.  It is useful for superscripts and subscripts.
 
-Horizontal scaling allows glyphs within the fonts to be horizontally stretched or squeezed.  The default value is 100, which means 100% width, with each glyph in its customary width.
+Horizontal scaling allows glyphs within the fonts to be horizontally stretched or squeezed.
 
-The stroke object and fill color object determine how the glyphs of the font are stroked and/or filled within the span.  Both can be defined, one of the two can be null, or both can be null.  (Setting both to null is useful when using a column purely for defining clipping areas.)
+The stroke object and fill color object determine how the glyphs of the font are stroked and/or filled.  Both can be defined, one of the two can be null, or both can be null.  (Setting both to null is useful when using text purely for defining clipping areas.)
+
+### Column object
+
+Column objects represent a sequence of text operations that place text on the page using fonts.
+
+The column object has an array of one or more _text lines._  Each text line defines its starting, leftmost baseline point and contains an array of one of more _text spans._  Each text span contains a Unicode string defining what text to render in the span and a text style object that determines the appearance of this text.  After each span is rendered, the next span begins where the previous span left off.
+
+Baseline adjustments due to the baseline vertical adjustment parameter of text style objects only apply within a span.  They do not affect the baseline of any spans that follow.
 
 ### Clipping object
 
@@ -641,3 +648,50 @@ A sequence of transformations can be combined as follows:
 
 The `[result]` transformation has the same effect as applying `m1...mn` transformations in that order.  If the given sequence of transformations is empty, an identity transform is produced.
 
+### Style operations
+
+Text style objects are built in the accumulator register.  The following operations mark the boundaries of the definition:
+
+    - start_style -
+    - finish_style [result:style]
+
+When the `start_style` operation is invoked, the accumulator register must be empty.  The accumulator is filled with the start of a new text style object definition.  All other operations within this section may only be used while the accumulator is filled with part of a text style object definition.  When the text style object has been fully defined in the accumulator, `finish_style` pushes the completed style object onto the interpreter stack and clears the accumulator register.
+
+The basic parameters of the text style are set with the operations, which affect the text style object currently in the accumulator:
+
+    [f:font]  style_font -
+    [s:fixed] style_size -
+    [s:stroke|null] style_stroke -
+    [s:color|null]  style_fill   -
+
+Each of these four parameters start out in a special undefined state that must be somehow set before the `finish_style` operation or an error occurs.  The font size is specified in points, which must be greater than zero.  If the stroke is set to null, then the glyphs will not be stroked.  If the fill is set to null, then the glyphs will not be filled.
+
+Each remaining parameter is optional, having default values that are set when the style object begins.
+
+    [s:fixed] style_cspace -
+    [s:fixed] style_wspace -
+
+These two operations set the character space and word space, respectively.  Both take a distance measured in points, which must be zero or greater.  The character space is added to each glyph.  The word space is only added to the space glyph for ASCII space codepoint U+0020.  The default values of zero mean that there is no extra space, and each glyph has its regular spacing.  Values greater than zero add extra space.  This is especially useful for justifying text.
+
+    [r:fixed] style_rise -
+
+This operation sets the baseline vertical adjustment.  The default value of zero means that text in this style uses the same baseline as the rest of the line.  Values greater than zero move the text baseline higher than the regular baseline, creating a superscript effect.  Values less than zero move the text baseline lower than the regular baseline, creating a subscript effect.  The value `[r]` is measured in points.
+
+    [s:fixed] style_hscale -
+
+This operation sets the horizontal scaling value.  `[s]` is a percent value that must be greater than zero.  The default value of 100 means that each glyph is displayed normally.  Values less than 100 squeeze glyphs horizontally while values greater than 100 stretch glyphs horizontally.
+
+To derive a new style from an existing style, create a new style with `start_style` and then use the following operation:
+
+    [source:style] style_derive -
+
+This operation replaces the text style currently in the accumulator register with all the parameters read from the given `[source]` text style.  You can then edit whichever individual parameters you want in the accumulator.
+
+For justifying text, it is often necessary to derive new styles that just adjust the character and/or word spacing of an existing style.  The following operations are shortcuts that can derive a style in a single operation without using the accumulator:
+
+    [source:style] [ws:fixed] style_setw [result:style]
+    [source:style] [ws:fixed|null] [cs:fixed|null] style_setwc [result:style]
+
+The `style_setw` takes a source text style object, copies it to a new style, and changes the word spacing in the new style to the given `[ws]` value.  The new style is then pushed onto the stack as the `[result]`.
+
+The `style_setwc` takes a source text style object, copies it to a new style, and changes the word spacing and/or character spacing in the new style to the given `[ws]` and `[cs]` values, respectively.  The new style is then pushed onto the stack as the `[result]`.  If null is used in place of a value, that value is not altered.
