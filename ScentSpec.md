@@ -102,7 +102,7 @@ Ream objects have the following properties:
 2. Boundaries
 3. Rotation
 
-The _paper size_ is the physical size of the paper.  Although this size is allowed to be in landscape orientation, the idiomatic way of handling landscape orientation is to define the paper size in portrait orientation and then apply a rotation.  The paper size is given as a width and height in points, where points are exactly 1/72 of an inch.  The follow table shows common paper sizes, their official width and height in millimeters or inches, and their closest approximation in points:
+The _paper size_ is the physical size of the paper.  Although this size is allowed to be in landscape orientation, the idiomatic way of handling landscape orientation is to define the paper size in portrait orientation and then apply transformations to the page axes.  The paper size is given as a width and height in points, where points are exactly 1/72 of an inch.  The following table shows common paper sizes, their official width and height in millimeters or inches, and their closest approximation in points:
 
       Size  |   Width    |   Height  |         Points
     ========+============+===========+========================
@@ -132,7 +132,7 @@ The complex boundary method also allows for there to be a trim box but no bleed 
 
 Scent allows an art box, bleed box, and trim box to be defined for each ream.  To match the style used in PDF/X, either an art box or a trim box must be defined for each ream.  The bleed box is optional and can be used with either the art box or the trim box.  Art boxes and trim boxes must be contained within the page, and also within the bleed box, if the bleed box is defined.
 
-The _rotation_ property defines the orientation of the page.  The idiomatic way of handling landscape orientation in PDF files is to define the page in portrait orientation and then rotate it.  The valid rotation values are 0, 90, 180, and 270 degrees clockwise.  Transformation objects can be used to orient display elements from landscape orientation into the rotated portrait orientation.
+The _rotation_ property defines the orientation of the page.  The idiomatic way of handling landscape orientation in PDF files is to define the page in portrait orientation and then rotate it.  The valid rotation values are 0, 90, 180, and 270 degrees clockwise.  Transformation objects can be used to convert coordinates between landscape orientation and rotated portrait orientation.
 
 ### Color objects
 
@@ -258,11 +258,15 @@ For the even-odd rule, just count the total number of edges that you cross while
 
 ### Transform object
 
-Transform objects represent a transformation of coordinates from the user coordinates that are provided in path and text operations into page coordinates.  Transforms are stored as a 3x3 matrix.  User coordinates are represented as a vector `[x y 1]`.  These user coordinate vectors are multiplied by the 3x3 transform matrix in order to get a page coordinate vector `[x' y' 1]` that specifies where on the page the coordinate lies.
+Transform objects are used to alter the coordinate system.
 
-Within each page, there is an operator that pushes a transform object onto the stack that represents the transformation of oriented page coordinates into the rotated page.  For example, when landscape pages are represented as a portrait page with a rotation in their ream object definition, this page transform operator will push a matrix that transforms coordinates intended for landscape orientation into the rotated portrait page.
+By default, the origin of the coordinate system is the bottom-left corner of the page, the X axis points rightwards, and the Y axis points upwards.  Sometimes, this default coordinate system is not convenient.  For example, on a landscape orientation page that is represented by a portrait page rotated 90 degrees clockwise, one may want the origin of the coordinate system to be the bottom-right corner of the unrotated page, the X axis to point upwards on the unrotated page, and the Y axis to point leftwards on the unrotated page.
 
-Transform objects can be defined by specifying translation, rotation, scale, and skew operations, which are then encoded into a proper transform matrix.  When multiple transform operations are specified at the same time they are always in that order, with translation first and skew last.  Transform objects can also be defined by concatenating a sequence of existing transform objects together.  The resulting transform performs all the transform operations encoded within that sequence of transforms.
+Transformation objects can be provided to drawing operations to change the coordinate system used for that drawing operation.  The simplest transformation is the _identity_ transform which just leaves the axes at their default.  If a null value is provided in place of a transformation object, the identity transform will be assumed.
+
+Scent provides three different transformations for changing the axes.  The _translation_ transform changes the origin of the coordinate system to a different location.  The location of the new origin is specified relative to the current coordinate system.  The _rotation_ transform rotates the axes counterclockwise around the origin of the current coordinate system.  The _scaling_ transform changes the size of units on the X and Y axes relative to their current scale.
+
+Transformations can be combined in any way.  Note that the order of transformations is significant.  That is, translating and then rotating does not produce the same result as rotating and then translating.  Generally, if you want to change the coordinate system with translation, rotation, and scaling, you should usually perform translation first, rotation second, and scaling third.
 
 ### Column object
 
@@ -612,4 +616,28 @@ When the accumulator holds a path object that is in initial mode, you can append
 All the subpaths from the `[source]` path object will be copied into the path object in the accumulator.  Note that the fill rule is _not_ copied.
 
 ### Transform operations
+
+Transform objects are created with operations detailed in this section.
+
+    - tx_identity [result:transform]
+
+Creates an identity transform that does not perform any transformation.
+
+    [x:fixed] [y:fixed] tx_translate [result:transform]
+
+Creates a translation transform that moves the origin of the coordinate system to the point `(x, y)` relative to whatever is the current coordinate system.
+
+    [rot:fixed] tx_rotate [result:transform]
+
+Creates a rotation transform that rotates the X and Y axes counterclockwise by `[rot]` degrees around the origin of whatever is the current coordinate system.
+
+    [sx:fixed] [sy:fixed] tx_scale [result:transform]
+
+Creates a scaling transform that scales the units on the X axis by `[sx]` and the units on the Y axis by `[sy]`.
+
+A sequence of transformations can be combined as follows:
+
+    [m1:transform] ... [mn:transform] [n:integer] tx_seq [result:transform]
+
+The `[result]` transformation has the same effect as applying `m1...mn` transformations in that order.  If the given sequence of transformations is empty, an identity transform is produced.
 
